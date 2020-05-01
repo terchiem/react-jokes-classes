@@ -1,41 +1,33 @@
-import React, { Component } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import Joke from "./Joke";
+import useLocalStorage from './hooks/useLocalStorage';
 import "./JokeList.css";
 
 /** List of jokes. */
 
-class JokeList extends Component {
-  static defaultProps = {
-    numJokesToGet: 5
-  };
+function JokeList({ numJokesToGet=5 }) {
+  const [jokes, setJokes] = useLocalStorage('jokes', []);
+  const [isLoading, setIsLoading] = useState(true);
+  const [savedJokes, setSavedJokes] = useLocalStorage('saved-jokes', []);
 
-  constructor(props) {
-    super(props);
-    this.state = {
-      jokes: [],
-      isLoading: true
-    };
-
-    this.generateNewJokes = this.generateNewJokes.bind(this);
-    this.vote = this.vote.bind(this);
-  }
-
-  /* at mount, get jokes */
-
-  componentDidMount() {
-    this.getJokes();
-  }
+  useEffect(() => {
+    if (jokes.length === 0) {
+      getJokes();
+    } else {
+      setIsLoading(false);
+    }
+  }, []);
 
   /* retrieve jokes from API */
 
-  async getJokes() {
+  async function getJokes() {
     try {
       // load jokes one at a time, adding not-yet-seen jokes
-      let jokes = [];
-      let seenJokes = new Set();
+      let jokes = [...savedJokes];
+      let seenJokes = new Set(savedJokes.map(j => j.id));
 
-      while (jokes.length < this.props.numJokesToGet) {
+      while (jokes.length < numJokesToGet) {
         let res = await axios.get("https://icanhazdadjoke.com", {
           headers: { Accept: "application/json" }
         });
@@ -49,7 +41,9 @@ class JokeList extends Component {
         }
       }
 
-      this.setState({ jokes, isLoading: false });
+      console.log(seenJokes);
+      setJokes(jokes);
+      setIsLoading(false);
     } catch (err) {
       console.error(err);
     }
@@ -57,54 +51,73 @@ class JokeList extends Component {
 
   /* empty joke list, set to loading state, and then call getJokes */
 
-  generateNewJokes() {
-    this.setState({ isLoading: true});
-    this.getJokes();
+  function generateNewJokes() {
+    setIsLoading(true);
+    getJokes();
   }
 
   /* change vote for this id by delta (+1 or -1) */
 
-  vote(id, delta) {
-    this.setState(st => ({
-      jokes: st.jokes.map(j =>
+  function vote(id, delta) {
+    setJokes(oldJokes => oldJokes.map(j =>
         j.id === id ? { ...j, votes: j.votes + delta } : j
       )
-    }));
-  }
-
-  /* render: either loading spinner or list of sorted jokes. */
-
-  render() {
-    let sortedJokes = [...this.state.jokes].sort((a, b) => b.votes - a.votes);
-    if (this.state.isLoading) {
-      return (
-        <div className="loading">
-          <i className="fas fa-4x fa-spinner fa-spin" />
-        </div>
-      )
-    }
-
-    return (
-      <div className="JokeList">
-        <button
-          className="JokeList-getmore"
-          onClick={this.generateNewJokes}
-        >
-          Get New Jokes
-        </button>
-
-        {sortedJokes.map(j => (
-          <Joke
-            text={j.joke}
-            key={j.id}
-            id={j.id}
-            votes={j.votes}
-            vote={this.vote}
-          />
-        ))}
-      </div>
     );
   }
+
+  /* reset all joke vote counts */
+
+  function resetVotes() {
+    setJokes(oldJokes => oldJokes.map(j => ({...j, votes: 0})));
+  }
+
+  /* either removes or adds a joke to the savedJokes state by id */
+
+  function updateSavedJokes(id) {
+    const savedJoke = savedJokes.find(j => j.id === id);
+    
+    if (savedJoke) {
+      setSavedJokes(oldJokes => oldJokes.filter(j => j.id !== id));
+    } else {
+      const jokeToSave = jokes.find(j => j.id === id);
+      setSavedJokes(oldJokes => [...oldJokes, jokeToSave]);
+    }
+  }
+
+  let sortedJokes = [...jokes].sort((a, b) => b.votes - a.votes);
+
+  if (isLoading) {
+    return (
+      <div className="loading">
+        <i className="fas fa-4x fa-spinner fa-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="JokeList">
+      <button
+        className="JokeList-getmore"
+        onClick={generateNewJokes}
+      >
+        Get New Jokes
+      </button>
+
+      <button onClick={resetVotes}>Reset Votes</button>
+
+      {sortedJokes.map(j => (
+        <Joke
+          text={j.joke}
+          key={j.id}
+          id={j.id}
+          votes={j.votes}
+          vote={vote}
+          updateSavedJokes={updateSavedJokes}
+          savedJokes={savedJokes}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default JokeList;
